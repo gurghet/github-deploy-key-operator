@@ -157,11 +157,11 @@ class GitHubKeyManager:
         
         return keys_deleted
 
-    def create_key(self, repo, title, key):
+    def create_key(self, repo, title, key, read_only):
         """Create a new GitHub deploy key."""
         try:
             managed_title = f"k8s-operator:{title}"
-            return repo.create_key(managed_title, key, read_only=True)
+            return repo.create_key(managed_title, key, read_only)
         except github.GithubException as e:
             self.logger.error(f"Error creating key: {str(e)}")
             raise
@@ -240,13 +240,16 @@ def create_deploy_key(spec, logger, patch, **kwargs):
         # Get repository
         repo = github_manager.get_repository(spec['repository'])
         
+        #Extract readOnly setting
+        read_only = spec.get('readOnly', True)
+        
         # Handle existing keys
         title = spec.get('title', 'Kubernetes-managed deploy key')
         github_manager.delete_keys_by_title(repo, title)
         
         # Generate and create new key
         private_key, public_key = github_manager.generate_ssh_key()
-        key = github_manager.create_key(repo, title, public_key)
+        key = github_manager.create_key(repo, title, public_key, read_only)
         logger.info(f"Created new deploy key: {key.id}")
         
         if not github_manager.verify_key_exists(repo, key.id):
