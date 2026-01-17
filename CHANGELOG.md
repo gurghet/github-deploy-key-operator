@@ -5,6 +5,13 @@
 
 * prevent race condition between on.create and reconcile timer ([f7e2be6](https://github.com/gurghet/github-deploy-key-operator/commit/f7e2be6fbb3bbbf990df2ca6305d19ecd08d336a))
 
+## [1.4.6](https://github.com/gurghet/github-deploy-key-operator/compare/v1.4.5...v1.4.6) (2026-01-17)
+
+
+### Bug Fixes
+
+* prevent race condition between on.create and reconcile timer ([f7e2be6](https://github.com/gurghet/github-deploy-key-operator/commit/f7e2be6fbb3bbbf990df2ca6305d19ecd08d336a))
+
 ## [1.4.5](https://github.com/gurghet/github-deploy-key-operator/compare/v1.4.4...v1.4.5) (2026-01-17)
 
 
