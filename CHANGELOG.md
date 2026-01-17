@@ -1,3 +1,10 @@
+## [1.4.4](https://github.com/gurghet/github-deploy-key-operator/compare/v1.4.3...v1.4.4) (2026-01-17)
+
+
+### Bug Fixes
+
+* use force parameter correctly in create_deploy_key ([c75c3e8](https://github.com/gurghet/github-deploy-key-operator/commit/c75c3e8f9d8855e8db36b2c3e238f9b5dfb4c42c))
+
 ## [1.4.3](https://github.com/gurghet/github-deploy-key-operator/compare/v1.4.2...v1.4.3) (2026-01-17)
 
 
