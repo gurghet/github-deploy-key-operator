@@ -1,3 +1,10 @@
+## [1.4.5](https://github.com/gurghet/github-deploy-key-operator/compare/v1.4.4...v1.4.5) (2026-01-17)
+
+
+### Bug Fixes
+
+* remove stale key cleanup race condition from reconcile ([5f454fb](https://github.com/gurghet/github-deploy-key-operator/commit/5f454fbc82af2bd5cb06e447178f896160d050c1))
+
 ## [1.4.4](https://github.com/gurghet/github-deploy-key-operator/compare/v1.4.3...v1.4.4) (2026-01-17)
 
 
