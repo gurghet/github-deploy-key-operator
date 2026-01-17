@@ -144,17 +144,19 @@ class GitHubKeyManager:
             return False
 
     def delete_keys_by_title(self, repo, title):
-        """Delete all GitHub deploy keys with a specific title."""
+        """Delete all GitHub deploy keys with a specific title (including operator-managed prefix)."""
         keys = list(repo.get_keys())
         self.logger.info(f"Found {len(keys)} existing deploy keys")
-        
+
+        managed_title = f"k8s-operator:{title}"
         keys_deleted = 0
         for key in keys:
-            if key.title == title:
-                self.logger.info(f"Found deploy key with title '{title}' (id: {key.id}), deleting it")
+            # Match both the base title and the operator-managed title
+            if key.title == title or key.title == managed_title:
+                self.logger.info(f"Found deploy key with title '{key.title}' (id: {key.id}), deleting it")
                 if self.delete_key_by_id(repo, key.id):
                     keys_deleted += 1
-        
+
         return keys_deleted
 
     def create_key(self, repo, title, key):
@@ -381,12 +383,10 @@ def reconcile_deploy_key(spec, status, logger, patch, **kwargs):
         base_title = spec.get('title', 'Kubernetes-managed deploy key')
         managed_title = f"k8s-operator:{base_title}"
         
-        # Clean up any operator-managed keys that don't match our key_id
-        for key in repo.get_keys():
-            if github_manager.is_operator_managed_key(key.title) and (not key_id or key.id != key_id):
-                logger.info(f"Found stale operator-managed deploy key {key.id}, deleting")
-                github_manager.delete_key_by_id(repo, key.id)
-        
+        # Note: We no longer delete "stale" keys here. This caused a race condition where
+        # a newly created key (not yet in status) would be deleted as stale.
+        # Key cleanup is handled by create_deploy_key via delete_keys_by_title.
+
         if not key_id:
             logger.info("No key ID in status, recreating deploy key")
             create_deploy_key(spec, status, logger, patch, force=True, **kwargs)
