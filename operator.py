@@ -259,13 +259,17 @@ class KubernetesSecretManager:
             return False
 
 @kopf.on.create('github.com', 'v1alpha1', 'githubdeploykeys')
-def create_deploy_key(spec, status, logger, patch, force=True, **kwargs):
-    """Create a new deploy key. Called by kopf on CR creation and by reconcile when key is missing."""
+def create_deploy_key(spec, status, logger, patch, force=False, **kwargs):
+    """Create a new deploy key. Called by kopf on CR creation and by reconcile when key is missing.
+
+    Args:
+        force: If True, proceed even if CR already has keyId (used by reconcile when key is missing)
+    """
 
     # If called from on.create but CR already has a keyId, skip - let reconcile handle it
     # This prevents duplicate key creation when operator restarts and sees existing CRs
     # When called from reconcile (with force=True), always proceed
-    if status and status.get('keyId') and not kwargs.get('force'):
+    if status and status.get('keyId') and not force:
         logger.info(f"CR already has keyId {status['keyId']}, skipping on.create - reconcile will handle it")
         return
 
