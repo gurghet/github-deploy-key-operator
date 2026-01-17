@@ -1,3 +1,10 @@
+## [1.4.3](https://github.com/gurghet/github-deploy-key-operator/compare/v1.4.2...v1.4.3) (2026-01-17)
+
+
+### Bug Fixes
+
+* skip key creation for existing CRs on operator restart ([48df26c](https://github.com/gurghet/github-deploy-key-operator/commit/48df26c3d6f63c2801fe47d514f24b099fa987d2))
+
 ## [1.4.2](https://github.com/gurghet/github-deploy-key-operator/compare/v1.4.1...v1.4.2) (2026-01-17)
 
 
