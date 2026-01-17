@@ -259,10 +259,19 @@ class KubernetesSecretManager:
             return False
 
 @kopf.on.create('github.com', 'v1alpha1', 'githubdeploykeys')
-def create_deploy_key(spec, logger, patch, **kwargs):
+def create_deploy_key(spec, status, logger, patch, force=True, **kwargs):
+    """Create a new deploy key. Called by kopf on CR creation and by reconcile when key is missing."""
+
+    # If called from on.create but CR already has a keyId, skip - let reconcile handle it
+    # This prevents duplicate key creation when operator restarts and sees existing CRs
+    # When called from reconcile (with force=True), always proceed
+    if status and status.get('keyId') and not kwargs.get('force'):
+        logger.info(f"CR already has keyId {status['keyId']}, skipping on.create - reconcile will handle it")
+        return
+
     github_manager = GitHubKeyManager(logger)
     secret_manager = KubernetesSecretManager(logger)
-    
+
     try:
         # Get repository
         repo = github_manager.get_repository(spec['repository'])
@@ -329,7 +338,7 @@ def update_deploy_key(spec, status, logger, patch, old, **kwargs):
         return
     
     logger.info("Detected changes in title or readOnly, recreating deploy key")
-    create_deploy_key(spec, logger, patch, **kwargs)
+    create_deploy_key(spec, status, logger, patch, force=True, **kwargs)
 
 @kopf.on.delete('github.com', 'v1alpha1', 'githubdeploykeys')
 def delete_deploy_key(spec, meta, status, logger, **kwargs):
@@ -376,7 +385,7 @@ def reconcile_deploy_key(spec, status, logger, patch, **kwargs):
         
         if not key_id:
             logger.info("No key ID in status, recreating deploy key")
-            create_deploy_key(spec, logger, patch, **kwargs)
+            create_deploy_key(spec, status, logger, patch, force=True, **kwargs)
             return
             
         # Check if our key still exists
@@ -386,13 +395,13 @@ def reconcile_deploy_key(spec, status, logger, patch, **kwargs):
                 logger.info(f"Deploy key {key_id} exists but title has changed, recreating")
                 # Delete old key before creating new one
                 github_manager.delete_key_by_id(repo, key_id)
-                create_deploy_key(spec, logger, patch, **kwargs)
+                create_deploy_key(spec, status, logger, patch, force=True, **kwargs)
             else:
                 logger.info(f"Deploy key {key_id} exists and is correctly configured")
         except github.GithubException as e:
             if e.status == 404:
                 logger.info(f"Deploy key {key_id} no longer exists, recreating")
-                create_deploy_key(spec, logger, patch, **kwargs)
+                create_deploy_key(spec, status, logger, patch, force=True, **kwargs)
             else:
                 logger.error(f"Error checking deploy key {key_id}: {e}")
                 
@@ -415,7 +424,7 @@ def reconcile_deploy_key(spec, status, logger, patch, **kwargs):
         except kubernetes.client.exceptions.ApiException as e:
             if e.status == 404:
                 logger.info(f"Secret {secret_name} is missing, recreating deploy key")
-                create_deploy_key(spec, logger, patch, **kwargs)
+                create_deploy_key(spec, status, logger, patch, force=True, **kwargs)
             else:
                 logger.error(f"Error checking secret {secret_name}: {e}")
                 
