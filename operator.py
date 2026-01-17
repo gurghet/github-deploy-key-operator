@@ -180,22 +180,45 @@ class KubernetesSecretManager:
     def __init__(self, logger):
         self.logger = logger
 
+    def _is_owned_by(self, secret, owner_uid):
+        """Check if secret is owned by the given owner UID."""
+        if not secret.metadata.owner_references:
+            return False
+        return any(ref.uid == owner_uid for ref in secret.metadata.owner_references)
+
     def create_or_update_secret(self, name, namespace, private_key, public_key, owner_reference):
-        """Create or update Kubernetes secret with SSH keys."""
+        """Create or update Kubernetes secret with SSH keys.
+
+        Returns:
+            - 'created': new secret was created
+            - 'updated': existing secret was updated (owned by us)
+            - 'conflict': secret exists but owned by someone else (no action taken)
+        """
         # Add github.com to known_hosts
         known_hosts = "github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg="
-        
+
         secret_data = {
             'identity': private_key,
             'identity.pub': public_key,
             'known_hosts': known_hosts
         }
-        
+
         encoded_data = {k: base64.b64encode(v.encode()).decode() for k, v in secret_data.items()}
-        
+
         try:
-            # Try to update existing secret
+            # Check if secret exists
             secret = core_v1_api.read_namespaced_secret(name=name, namespace=namespace)
+
+            # Check ownership
+            if not self._is_owned_by(secret, owner_reference.uid):
+                self.logger.warning(
+                    f"Secret {name} exists but is not owned by this GitHubDeployKey. "
+                    f"Refusing to overwrite. Delete the existing secret manually if you want "
+                    f"the operator to manage it."
+                )
+                return 'conflict'
+
+            # Owned by us - safe to update
             secret.data = encoded_data
             core_v1_api.replace_namespaced_secret(
                 name=name,
@@ -203,10 +226,13 @@ class KubernetesSecretManager:
                 body=secret
             )
             self.logger.info(f"Updated existing secret {name}")
+            return 'updated'
+
         except kubernetes.client.exceptions.ApiException as e:
             if e.status != 404:
                 raise
-            
+
+            # Secret doesn't exist - create it
             core_v1_api.create_namespaced_secret(
                 namespace=namespace,
                 body=kubernetes.client.V1Secret(
@@ -219,6 +245,7 @@ class KubernetesSecretManager:
                 )
             )
             self.logger.info(f"Created new secret {name}")
+            return 'created'
 
     def delete_secret_if_exists(self, name, namespace):
         """Delete a Kubernetes secret if it exists."""
@@ -251,11 +278,8 @@ def create_deploy_key(spec, logger, patch, **kwargs):
         
         if not github_manager.verify_key_exists(repo, key.id):
             raise kopf.PermanentError("Failed to verify deploy key")
-        
-        # Update status
-        patch['status'] = {'keyId': key.id}
-        
-        # Create secret
+
+        # Create secret BEFORE updating status (so status only reflects successful state)
         secret_name = f"{kwargs['meta']['name']}-private-key"
         owner_reference = kubernetes.client.V1OwnerReference(
             api_version=kwargs['body']['apiVersion'],
@@ -263,16 +287,27 @@ def create_deploy_key(spec, logger, patch, **kwargs):
             name=kwargs['body']['metadata']['name'],
             uid=kwargs['body']['metadata']['uid']
         )
-        
-        secret_manager.delete_secret_if_exists(secret_name, kwargs['meta']['namespace'])
-        secret_manager.create_or_update_secret(
+
+        result = secret_manager.create_or_update_secret(
             secret_name,
             kwargs['meta']['namespace'],
             private_key,
             public_key,
             owner_reference
         )
-        
+
+        if result == 'conflict':
+            # Secret exists but not owned by us - clean up the GitHub key we just created
+            logger.warning(f"Secret {secret_name} owned by another resource. Cleaning up GitHub key.")
+            github_manager.delete_key_by_id(repo, key.id)
+            raise kopf.PermanentError(
+                f"Secret {secret_name} already exists and is not owned by this GitHubDeployKey. "
+                f"Delete the existing secret manually to allow the operator to manage it."
+            )
+
+        # Only update status after everything succeeded
+        patch['status'] = {'keyId': key.id}
+
         logger.info(f"Successfully created deploy key {key.id} and secret {secret_name}")
         
     except Exception as e:
@@ -361,14 +396,22 @@ def reconcile_deploy_key(spec, status, logger, patch, **kwargs):
             else:
                 logger.error(f"Error checking deploy key {key_id}: {e}")
                 
-        # Verify secret exists
+        # Verify secret exists and is owned by us
         secret_name = f"{kwargs['meta']['name']}-private-key"
+        secret_manager = KubernetesSecretManager(logger)
         try:
-            core_v1_api.read_namespaced_secret(
+            secret = core_v1_api.read_namespaced_secret(
                 name=secret_name,
                 namespace=kwargs['meta']['namespace']
             )
-            logger.info(f"Secret {secret_name} exists")
+            # Check ownership
+            if not secret_manager._is_owned_by(secret, kwargs['body']['metadata']['uid']):
+                logger.warning(
+                    f"Secret {secret_name} exists but is not owned by this GitHubDeployKey. "
+                    f"Delete the existing secret manually to allow the operator to manage it."
+                )
+            else:
+                logger.info(f"Secret {secret_name} exists and is correctly owned")
         except kubernetes.client.exceptions.ApiException as e:
             if e.status == 404:
                 logger.info(f"Secret {secret_name} is missing, recreating deploy key")
