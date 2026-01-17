@@ -1,3 +1,10 @@
+## [1.4.2](https://github.com/gurghet/github-deploy-key-operator/compare/v1.4.1...v1.4.2) (2026-01-17)
+
+
+### Bug Fixes
+
+* prevent race condition in secret creation ([c12b479](https://github.com/gurghet/github-deploy-key-operator/commit/c12b479544a03dc4f1aaf81af373f72182555b62))
+
 ## [1.4.1](https://github.com/gurghet/github-deploy-key-operator/compare/v1.4.0...v1.4.1) (2025-02-23)
 
 
