@@ -3,6 +3,7 @@ import kopf
 import kubernetes
 import base64
 import github
+from datetime import datetime, timezone
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.backends import default_backend
@@ -372,22 +373,33 @@ def delete_deploy_key(spec, meta, status, logger, **kwargs):
     
     logger.info(f"Secret {meta['name']}-private-key will be deleted by garbage collection")
 
-@kopf.timer('github.com', 'v1alpha1', 'githubdeploykeys', interval=60.0)
+@kopf.timer('github.com', 'v1alpha1', 'githubdeploykeys', interval=60.0, initial_delay=60.0)
 def reconcile_deploy_key(spec, status, logger, patch, **kwargs):
     """Periodically reconcile the deploy key to ensure it exists."""
     github_manager = GitHubKeyManager(logger)
-    
+
     try:
         repo = github_manager.get_repository(spec['repository'])
         key_id = status.get('keyId') if status else None
         base_title = spec.get('title', 'Kubernetes-managed deploy key')
         managed_title = f"k8s-operator:{base_title}"
-        
+
         # Note: We no longer delete "stale" keys here. This caused a race condition where
         # a newly created key (not yet in status) would be deleted as stale.
         # Key cleanup is handled by create_deploy_key via delete_keys_by_title.
 
         if not key_id:
+            # Check if CR was recently created - if so, let on.create handle it
+            # This prevents a race condition where both on.create and reconcile timer
+            # fire simultaneously on new CRs before status is patched
+            creation_time_str = kwargs['body']['metadata']['creationTimestamp']
+            creation_time = datetime.fromisoformat(creation_time_str.replace('Z', '+00:00'))
+            age_seconds = (datetime.now(timezone.utc) - creation_time).total_seconds()
+
+            if age_seconds < 90:
+                logger.info(f"CR created {age_seconds:.0f}s ago with no keyId - letting on.create handle it")
+                return
+
             logger.info("No key ID in status, recreating deploy key")
             create_deploy_key(spec, status, logger, patch, force=True, **kwargs)
             return
